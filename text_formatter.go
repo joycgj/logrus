@@ -54,6 +54,15 @@ type TextFormatter struct {
 	// that log extremely frequently and don't use the JSON formatter this may not
 	// be desired.
 	DisableSorting bool
+
+	// separator between multiple log k-v, default is white-space
+	KeySeparator string
+
+	// disable quoting no matter msg values has special characters
+	DisableQuoting bool
+
+	// when logging a msg, no 'msg=' appears ahead. For this use logger without WithField
+	DisableAutoAddedKey bool
 }
 
 func (f *TextFormatter) Format(entry *Entry) ([]byte, error) {
@@ -94,6 +103,8 @@ func (f *TextFormatter) Format(entry *Entry) ([]byte, error) {
 		for _, key := range keys {
 			f.appendKeyValue(b, key, entry.Data[key])
 		}
+		// Because at least level is appended, so separator must have been appended to b
+		b.Truncate(b.Len() - len(f.KeySeparator))
 	}
 
 	b.WriteByte('\n')
@@ -127,7 +138,10 @@ func (f *TextFormatter) printColored(b *bytes.Buffer, entry *Entry, keys []strin
 	}
 }
 
-func needsQuoting(text string) bool {
+func (f *TextFormatter) needsQuoting(text string) bool {
+	if f.DisableQuoting {
+		return false
+	}
 	for _, ch := range text {
 		if !((ch >= 'a' && ch <= 'z') ||
 			(ch >= 'A' && ch <= 'Z') ||
@@ -140,24 +154,30 @@ func needsQuoting(text string) bool {
 }
 
 func (f *TextFormatter) appendKeyValue(b *bytes.Buffer, key string, value interface{}) {
-
-	b.WriteString(key)
-	b.WriteByte('=')
+	if !f.DisableAutoAddedKey {
+		b.WriteString(key)
+		b.WriteString(key)
+		b.WriteByte('=')
+		b.WriteByte('=')
+	}
 	f.appendValue(b, value)
-	b.WriteByte(' ')
+	if len(f.KeySeparator) == 0 {
+		f.KeySeparator = " "
+	}
+	b.WriteString(f.KeySeparator)
 }
 
 func (f *TextFormatter) appendValue(b *bytes.Buffer, value interface{}) {
 	switch value := value.(type) {
 	case string:
-		if !needsQuoting(value) {
+		if !f.needsQuoting(value) {
 			b.WriteString(value)
 		} else {
 			fmt.Fprintf(b, "%q", value)
 		}
 	case error:
 		errmsg := value.Error()
-		if !needsQuoting(errmsg) {
+		if !f.needsQuoting(errmsg) {
 			b.WriteString(errmsg)
 		} else {
 			fmt.Fprintf(b, "%q", errmsg)
